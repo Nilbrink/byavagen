@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <title>Karta &ouml;ver Ljungaverk</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #map {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
+    #comment-dialog {
+      display: none;
+      position: absolute;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.25);
+      padding: 24px;
+      z-index: 2000;
+      min-width: 300px;
+    }
+
+    #comment-dialog h3 { margin-top: 0; }
+    #comment-dialog textarea { width: 100%; margin-bottom: 16px; }
+    #dialog-actions { display: flex; gap: 12px; justify-content: flex-end; }
+
+    #overlay-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 3000;
+    }
+
+    #overlay-card {
+      background: rgba(255, 255, 255, 0.92);
+      border-radius: 10px;
+      padding: 20px;
+      max-width: 420px;
+      width: 90%;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      color: #111;
+    }
+
+    #overlay-card h2 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+    }
+
+    #overlay-card p {
+      margin: 0 0 16px 0;
+      line-height: 1.5;
+    }
+
+    #close-instructions {
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="top-bar">
+    <div>Koordinater: <span id="coordinates">--</span></div>
+    <button id="clear-db">rensa databas</button>
+  </div>
+
+  <div id="map"></div>
+
+  <div id="comment-dialog">
+    <h3>Kommentar om denna plats</h3>
+    <textarea id="comment-text" rows="4"></textarea>
+    <div id="dialog-actions">
+      <button id="save-comment">Spara</button>
+      <button id="cancel-comment">Avbryt</button>
+    </div>
+  </div>
+
+  <div id="overlay-backdrop">
+    <div id="overlay-card">
+      <h2>Instruktioner</h2>
+      <p>Text kommer h&auml;r.</p>
+      <label><input type="checkbox" id="close-instructions" /> St&auml;ng instruktionerna</label>
+    </div>
+  </div>
+
+  <script>
+    let map;
+    let marker = null;
+    let savedMarkers = [];
+    let infoWindow;
+    let dialogOpen = false;
+    let lastGoodZoom = 14;
+    let projectionHelper;
+    const dialogOffset = { x: 16, y: 16 };
+
+    const centerPoint = { lat: 62.491742, lng: 16.038320 };
+    const maxRadiusMeters = 3000; // Max zoom-out radius from center
+
+    function initMap() {
+      const latDelta = 0.027; // ~3km north/south
+      const lngDelta = 0.059; // ~3km east/west at this latitude
+      const bounds = {
+        north: centerPoint.lat + latDelta,
+        south: centerPoint.lat - latDelta,
+        east: centerPoint.lng + lngDelta,
+        west: centerPoint.lng - lngDelta,
+      };
+
+      map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 14,
+        center: centerPoint,
+        mapTypeId: google.maps.MapTypeId.SATELLITE,
+        restriction: { latLngBounds: bounds, strictBounds: true },
+        streetViewControl: false,
+        fullscreenControl: true,
+      });
+
+      infoWindow = new google.maps.InfoWindow();
+      projectionHelper = new google.maps.OverlayView();
+      projectionHelper.onAdd = function() {};
+      projectionHelper.draw = function() {};
+      projectionHelper.onRemove = function() {};
+      projectionHelper.setMap(map);
+
+      map.addListener("click", (e) => {
+        if (dialogOpen) return;
+        placeMarker(e.latLng);
+        showCommentDialog();
+      });
+
+      map.addListener("zoom_changed", () => {
+        enforceZoomLimit();
+        if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
+      });
+
+      map.addListener("drag", () => {
+        if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
+      });
+
+      map.addListener("idle", () => {
+        if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
+      });
+
+      loadMarkers();
+    }
+    window.initMap = initMap;
+
+    function enforceZoomLimit() {
+      const bounds = map.getBounds();
+      if (!bounds) return;
+      const radius = google.maps.geometry.spherical.computeDistanceBetween(
+        bounds.getCenter(),
+        bounds.getNorthEast()
+      );
+      if (radius > maxRadiusMeters) {
+        map.setZoom(lastGoodZoom);
+      } else {
+        lastGoodZoom = map.getZoom();
+      }
+    }
+
+    function showCommentDialog() {
+      dialogOpen = true;
+      document.getElementById("comment-dialog").style.display = "block";
+      document.getElementById("comment-text").value = "";
+      if (marker) positionCommentDialog(marker.getPosition());
+    }
+
+    function closeCommentDialog() {
+      dialogOpen = false;
+      document.getElementById("comment-dialog").style.display = "none";
+      if (marker) { marker.setMap(null); marker = null; }
+      map.setZoom(14);
+      map.setCenter(centerPoint);
+      document.getElementById("coordinates").textContent = "--";
+    }
+    window.closeCommentDialog = closeCommentDialog;
+
+    document.getElementById("save-comment").onclick = handleSaveComment;
+    document.getElementById("cancel-comment").onclick = window.closeCommentDialog;
+    document.getElementById("clear-db").onclick = handleClearDatabase;
+    document.getElementById("close-instructions").onchange = handleCloseInstructions;
+    window.addEventListener("resize", () => {
+      if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
+    });
+
+    function placeMarker(latLng) {
+      if (!marker) {
+        marker = new google.maps.Marker({
+          position: latLng,
+          map: map,
+        });
+      } else {
+        marker.setPosition(latLng);
+      }
+      showCoordinates(latLng);
+      if (dialogOpen) positionCommentDialog(latLng);
+    }
+
+    function showCoordinates(latLng) {
+      const lat = latLng.lat().toFixed(6);
+      const lng = latLng.lng().toFixed(6);
+      document.getElementById("coordinates").textContent = `${lat}, ${lng}`;
+    }
+
+    async function loadMarkers() {
+      try {
+        const response = await fetch("/api/markers");
+        if (!response.ok) throw new Error("failed to load markers");
+        const data = await response.json();
+        savedMarkers.forEach((m) => m.setMap(null));
+        savedMarkers = [];
+        data.forEach((entry) => {
+          const saved = new google.maps.Marker({
+            position: { lat: entry.lat, lng: entry.lng },
+            map: map,
+          });
+          if (entry.comment) {
+            saved.addListener("click", () => {
+              infoWindow.setContent(`<div>${escapeHtml(entry.comment)}</div>`);
+              infoWindow.open(map, saved);
+            });
+          }
+          savedMarkers.push(saved);
+        });
+      } catch (err) {
+        console.error("Could not load markers", err);
+      }
+    }
+
+    async function handleSaveComment() {
+      if (!marker) {
+        alert("Placera en punkt p&aring; kartan innan du sparar.");
+        return;
+      }
+      const body = {
+        lat: marker.getPosition().lat(),
+        lng: marker.getPosition().lng(),
+        comment: document.getElementById("comment-text").value || "",
+      };
+      try {
+        const response = await fetch("/api/markers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error("failed to save marker");
+      } catch (err) {
+        console.error("Could not save marker", err);
+        alert("Kunde inte spara punkten.");
+        return;
+      }
+
+      try {
+        await loadMarkers();
+      } catch (err) {
+        console.error("Could not refresh markers after save", err);
+      }
+
+      closeCommentDialog();
+    }
+
+    async function handleClearDatabase() {
+      const confirmed = confirm("Rensa alla sparade punkter?");
+      if (!confirmed) return;
+      try {
+        const response = await fetch("/api/markers", { method: "DELETE" });
+        if (!response.ok) throw new Error("failed to clear markers");
+        savedMarkers.forEach((m) => m.setMap(null));
+        savedMarkers = [];
+        if (infoWindow) infoWindow.close();
+      } catch (err) {
+        console.error("Could not clear markers", err);
+        alert("Kunde inte rensa databasen.");
+      }
+    }
+
+    function handleCloseInstructions(event) {
+      if (event.target.checked) {
+        const overlay = document.getElementById("overlay-backdrop");
+        overlay.style.display = "none";
+      }
+    }
+
+    function positionCommentDialog(latLng) {
+      if (!projectionHelper) return;
+      const proj = projectionHelper.getProjection();
+      if (!proj) return;
+
+      const dialog = document.getElementById("comment-dialog");
+      const mapRect = map.getDiv().getBoundingClientRect();
+      const point = proj.fromLatLngToDivPixel(latLng);
+      const rawLeft = mapRect.left + point.x + dialogOffset.x;
+      const rawTop = mapRect.top + point.y + dialogOffset.y;
+
+      // Keep dialog visible and offset from the marker.
+      dialog.style.left = `${Math.min(Math.max(rawLeft, 8), window.innerWidth - dialog.offsetWidth - 8)}px`;
+      dialog.style.top = `${Math.min(Math.max(rawTop, 8), window.innerHeight - dialog.offsetHeight - 8)}px`;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, (ch) => {
+        switch (ch) {
+          case "&": return "&amp;";
+          case "<": return "&lt;";
+          case ">": return "&gt;";
+          case "\"": return "&quot;";
+          case "'": return "&#39;";
+          default: return ch;
+        }
+      });
+    }
+
+    async function loadGoogleMapsApi() {
+      let apiKey = "";
+      try {
+        const response = await fetch("/api/maps-key");
+        const data = await response.json();
+        apiKey = data.apiKey || "";
+      } catch (err) {
+        console.error("Failed to fetch Google Maps API key.", err);
+      }
+
+      if (!apiKey) {
+        console.error("Missing GOOGLE_MAPS_API_KEY.");
+        alert("Google Maps API-nyckel saknas.");
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.async = true;
+      script.defer = true;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=geometry&callback=initMap`;
+      document.body.appendChild(script);
+    }
+  </script>
+
+  <script>loadGoogleMapsApi();</script>
+</body>
+</html>

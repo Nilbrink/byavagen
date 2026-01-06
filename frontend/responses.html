@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <title>Svar & karta</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #111;
+    }
+    #layout {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      background: #f7f8fb;
+    }
+    #responses {
+      width: 40%;
+      min-width: 320px;
+      max-width: 520px;
+      border-right: 1px solid #dfe2e7;
+      overflow-y: auto;
+      padding: 16px;
+      background: #fff;
+    }
+    #responses h1 {
+      margin: 0 0 12px 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .item-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .delete-btn {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 28px;
+      width: 28px;
+      border: 1px solid #e4e7ec;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .delete-btn svg {
+      width: 14px;
+      height: 14px;
+      fill: #6b7280;
+      pointer-events: none;
+    }
+    .delete-btn:hover {
+      border-color: #f8b4b4;
+      background: #fff5f5;
+    }
+    .delete-btn:hover svg {
+      fill: #d92d20;
+    }
+    .response-item {
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      border: 1px solid #e4e7ec;
+      border-radius: 8px;
+      background: #fafbfd;
+      cursor: pointer;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .response-item:hover {
+      border-color: #b9c6ff;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+    }
+    .response-item .meta {
+      font-size: 12px;
+      color: #5b6472;
+      margin-bottom: 6px;
+    }
+    .response-item .comment {
+      font-size: 14px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+    #map {
+      flex: 1;
+      height: 100%;
+    }
+    #status {
+      font-size: 13px;
+      color: #5b6472;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="layout">
+    <div id="responses">
+      <h1>Sparade svar</h1>
+      <div id="status">H&auml;mtar data...</div>
+      <div id="list"></div>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <div id="auth-overlay" style="position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:9999;">
+    <div style="background:#fff; padding:20px 24px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.25); max-width:320px; width:90%; text-align:center;">
+      <div style="font-weight:700; margin-bottom:10px;">Lösenord krävs</div>
+      <div style="font-size:13px; color:#555; margin-bottom:10px;">Ange lösenord för att visa listan.</div>
+      <input id="auth-pass" type="password" placeholder="Lösenord" style="width:100%; padding:10px 12px; margin-bottom:10px; border:1px solid #dfe2e7; border-radius:6px;" />
+      <div id="auth-error" style="color:#c00; font-size:12px; min-height:16px; margin-bottom:8px;"></div>
+      <button id="auth-submit" style="width:100%; padding:10px 12px; background:#111827; color:#fff; border:none; border-radius:6px; cursor:pointer;">Logga in</button>
+    </div>
+  </div>
+
+  <script>
+    let map;
+    let infoWindow;
+    let markers = [];
+    let markerById = {};
+    const centerPoint = { lat: 62.491742, lng: 16.038320 };
+
+    async function loadGoogleMapsApi() {
+      let apiKey = "";
+      try {
+        const response = await fetch("/api/maps-key");
+        const data = await response.json();
+        apiKey = data.apiKey || "";
+      } catch (err) {
+        console.error("Failed to fetch Google Maps API key.", err);
+      }
+
+      if (!apiKey) {
+        console.error("Missing GOOGLE_MAPS_API_KEY.");
+        alert("Google Maps API-nyckel saknas.");
+        setStatus("Google Maps API-nyckel saknas.");
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.async = true;
+      script.defer = true;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=geometry&callback=initMap`;
+      document.body.appendChild(script);
+    }
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 14,
+        center: centerPoint,
+        mapTypeId: google.maps.MapTypeId.SATELLITE,
+        streetViewControl: false,
+        fullscreenControl: true,
+      });
+      infoWindow = new google.maps.InfoWindow();
+      loadResponses();
+    }
+    window.initMap = initMap;
+
+    async function loadResponses() {
+      setStatus("H&auml;mtar marker...");
+      try {
+        const response = await fetch("/api/markers");
+        if (!response.ok) throw new Error("failed to load markers");
+        const data = await response.json();
+        setStatus(`Visar ${data.length} marker${data.length === 1 ? "" : "ar"}.`);
+        renderList(data);
+        renderMarkers(data);
+      } catch (err) {
+        console.error("Could not load markers", err);
+        setStatus("Kunde inte ladda marker.");
+      }
+    }
+
+    function renderMarkers(entries) {
+      markers.forEach((m) => m.setMap(null));
+      markers = [];
+      markerById = {};
+
+      entries.forEach((entry) => {
+        const marker = new google.maps.Marker({
+          position: { lat: entry.lat, lng: entry.lng },
+          map,
+        });
+        marker.addListener("click", () => openInfo(marker, entry));
+        markers.push(marker);
+        markerById[entry.id] = marker;
+      });
+    }
+
+    function renderList(entries) {
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+      if (!entries.length) {
+        list.innerHTML = "<div>Inga sparade marker &auml;n.</div>";
+        return;
+      }
+
+      entries.forEach((entry) => {
+        const item = document.createElement("div");
+        item.className = "response-item";
+        item.dataset.id = entry.id;
+
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        const created = formatTimestamp(entry.created_at);
+        meta.textContent = `${created ? `Tid: ${created} · ` : ""}Lat: ${entry.lat.toFixed(5)}, Lng: ${entry.lng.toFixed(5)}`;
+
+        const comment = document.createElement("div");
+        comment.className = "comment";
+        comment.textContent = entry.comment || "(ingen kommentar)";
+
+        const head = document.createElement("div");
+        head.className = "item-head";
+        head.appendChild(meta);
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "delete-btn";
+        delBtn.title = "Ta bort marker";
+        delBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6a1 1 0 0 1 1 1v1h4v2H4V5h4V4a1 1 0 0 1 1-1Zm2 0v1h2V3h-2Zm-3 7h2v8H8v-8Zm4 0h2v8h-2v-8Zm-8-2h14v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8Z"/></svg>';
+        delBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          handleDelete(entry);
+        });
+
+        head.appendChild(delBtn);
+
+        item.appendChild(head);
+        item.appendChild(comment);
+
+        item.addEventListener("mouseenter", () => highlightMarker(entry));
+        item.addEventListener("mouseleave", () => { if (infoWindow) infoWindow.close(); });
+        item.addEventListener("click", () => highlightMarker(entry, true));
+
+        list.appendChild(item);
+      });
+    }
+
+    function highlightMarker(entry, zoomTo = false) {
+      const marker = markerById[entry.id];
+      if (!marker) return;
+      openInfo(marker, entry);
+      if (zoomTo) map.panTo(marker.getPosition());
+    }
+
+    function openInfo(marker, entry) {
+      if (!infoWindow) return;
+      infoWindow.setContent(`<div style="max-width:220px;">${escapeHtml(entry.comment || "(ingen kommentar)")}</div>`);
+      infoWindow.open(map, marker);
+    }
+
+    async function handleDelete(entry) {
+      const confirmed = confirm("Ta bort denna marker?");
+      if (!confirmed) return;
+      try {
+        const response = await fetch(`/api/markers/${entry.id}`, { method: "DELETE" });
+        if (!response.ok) throw new Error("failed to delete");
+        await loadResponses();
+      } catch (err) {
+        console.error("Could not delete marker", err);
+        setStatus("Kunde inte ta bort marker.");
+      }
+    }
+
+    function setStatus(text) {
+      document.getElementById("status").textContent = text;
+    }
+
+    function formatTimestamp(value) {
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "";
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} (${pad(d.getHours())}:${pad(d.getMinutes())})`;
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (ch) => {
+        switch (ch) {
+          case "&": return "&amp;";
+          case "<": return "&lt;";
+          case ">": return "&gt;";
+          case "\"": return "&quot;";
+          case "'": return "&#39;";
+          default: return ch;
+        }
+      });
+    }
+
+    function setupAuth() {
+      const overlay = document.getElementById("auth-overlay");
+      const submit = document.getElementById("auth-submit");
+      const input = document.getElementById("auth-pass");
+      const error = document.getElementById("auth-error");
+
+      async function check() {
+        const val = input.value || "";
+        error.textContent = "";
+        if (!val) {
+          error.textContent = "Ange l&ouml;senord.";
+          return;
+        }
+
+        submit.disabled = true;
+        const prevLabel = submit.textContent;
+        submit.textContent = "Kontrollerar...";
+        try {
+          const response = await fetch("/api/auth/check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: val }),
+          });
+          if (!response.ok) throw new Error("auth failed");
+          overlay.style.display = "none";
+          loadGoogleMapsApi();
+        } catch (err) {
+          error.textContent = "Fel l&ouml;senord.";
+        } finally {
+          submit.disabled = false;
+          submit.textContent = prevLabel;
+        }
+      }
+
+      submit.addEventListener("click", check);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") check();
+      });
+    }
+
+    setupAuth();
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+    volumes:
+      - ./caddy/Caddyfile.dev:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  frontend:
+    build: ./frontend
+
+  backend:
+    build: ./backend
+    env_file:
+      - .env
+    depends_on:
+      - db
+    expose:
+      - "8000"
+
+  db:
+    image: postgres:16
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+
