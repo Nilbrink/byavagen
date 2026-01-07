@@ -1,0 +1,28 @@
+Install Docker + Compose plugin:
+sudo apt update && sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc >/dev/null
+docker.list
+sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER (log out/in to use docker without sudo).
+Get the code onto the server:
+<repo>.git
+cd <repo>
+Create .env (server-side, do not commit) with:
+POSTGRES_DB=appdb
+POSTGRES_USER=appuser
+POSTGRES_PASSWORD=sdfl123hfskl!@h
+DB_HOST=db
+GOOGLE_MAPS_API_KEY=...your key...
+RESPONSES_PASSWORD=test
+Run the stack (prod):
+docker compose -f docker-compose.prod.yml up -d --build
+Open ports 80/443 in your firewall if needed:
+sudo ufw allow 80,443/tcp
+Point your domain DNS (A/AAAA) to the server. Update Caddyfile.prod with your domain instead of  (line 80), then docker compose -f docker-compose.prod.yml restart caddy to fetch certs.
+
+Verify:
+
+docker compose -f docker-compose.prod.yml ps
+Browse to http://<server-ip> (or https://<your-domain>).
+Updates: pull new code or copy changes, then docker compose -f docker-compose.prod.yml up -d --build. Data lives in the postgres_data volume.

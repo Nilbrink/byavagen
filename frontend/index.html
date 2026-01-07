@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="sv">
 <head>
   <meta charset="utf-8" />
@@ -67,9 +67,45 @@
     #close-instructions {
       margin-right: 8px;
     }
+
+    #save-toast {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 4000;
+    }
+
+    #save-toast-card {
+      background: rgba(255, 255, 255, 0.96);
+      border-radius: 10px;
+      padding: 18px 24px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      font-size: 16px;
+      font-weight: 700;
+      color: #111;
+    }
+
+    #map-hint {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1500;
+      background: rgba(255, 255, 255, 0.94);
+      color: #111;
+      border-radius: 10px;
+      padding: 10px 16px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+      font-weight: 600;
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
+  <div id="map-hint">Klicka p&aring; kartan f&ouml;r att l&auml;gga till kommentar om platsen.</div>
   <div id="top-bar">
     <div>Koordinater: <span id="coordinates">--</span></div>
     <button id="clear-db">rensa databas</button>
@@ -90,9 +126,14 @@
     <div id="overlay-card">
       <h2>Instruktioner</h2>
       <p>Text kommer h&auml;r.</p>
-      <label><input type="checkbox" id="close-instructions" /> Stäng instruktionerna</label>
+      <label><input type="checkbox" id="close-instructions" /> St&auml;ng instruktionerna</label>
     </div>
   </div>
+
+  <div id="save-toast">
+    <div id="save-toast-card">Tack f&ouml;r ditt bidrag</div>
+  </div>
+
 
   <script>
     let map;
@@ -103,6 +144,7 @@
     let lastGoodZoom = 14;
     let projectionHelper;
     const dialogOffset = { x: 16, y: 16 };
+    let toastTimer = null;
 
     const centerPoint = { lat: 62.491742, lng: 16.038320 };
     const maxRadiusMeters = 3000; // Max zoom-out radius from center
@@ -120,7 +162,7 @@
       map = new google.maps.Map(document.getElementById("map"), {
         zoom: 14,
         center: centerPoint,
-        mapTypeId: google.maps.MapTypeId.SATELLITE,
+        mapTypeId: google.maps.MapTypeId.HYBRID,
         restriction: { latLngBounds: bounds, strictBounds: true },
         streetViewControl: false,
         fullscreenControl: true,
@@ -226,12 +268,6 @@
             position: { lat: entry.lat, lng: entry.lng },
             map: map,
           });
-          if (entry.comment) {
-            saved.addListener("click", () => {
-              infoWindow.setContent(`<div>${escapeHtml(entry.comment)}</div>`);
-              infoWindow.open(map, saved);
-            });
-          }
           savedMarkers.push(saved);
         });
       } catch (err) {
@@ -241,7 +277,7 @@
 
     async function handleSaveComment() {
       if (!marker) {
-        alert("Placera en punkt på kartan innan du sparar.");
+        alert("Placera en punkt pÃ¥ kartan innan du sparar.");
         return;
       }
       const body = {
@@ -268,6 +304,7 @@
         console.error("Could not refresh markers after save", err);
       }
 
+      showSaveToast();
       closeCommentDialog();
     }
 
@@ -307,6 +344,19 @@
       // Keep dialog visible and offset from the marker.
       dialog.style.left = `${Math.min(Math.max(rawLeft, 8), window.innerWidth - dialog.offsetWidth - 8)}px`;
       dialog.style.top = `${Math.min(Math.max(rawTop, 8), window.innerHeight - dialog.offsetHeight - 8)}px`;
+    }
+
+    function showSaveToast() {
+      const toast = document.getElementById("save-toast");
+      if (!toast) return;
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+      }
+      toast.style.display = "flex";
+      toastTimer = setTimeout(() => {
+        toast.style.display = "none";
+      }, 3000);
     }
 
     function escapeHtml(str) {
@@ -349,3 +399,6 @@
   <script>loadGoogleMapsApi();</script>
 </body>
 </html>
+
+
+
