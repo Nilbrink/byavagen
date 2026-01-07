@@ -1,9 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 import psycopg2
 import os
 import hmac
+import csv
+from io import StringIO
 
 app = FastAPI()
 
@@ -94,6 +97,29 @@ def delete_markers():
     cur.close()
     conn.close()
     return {"status": "cleared"}
+
+@app.get("/markers/export")
+def export_markers():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, lat, lng, comment, created_at FROM markers ORDER BY created_at DESC, id DESC")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["id", "lat", "lng", "comment", "created_at"])
+    for r in rows:
+        writer.writerow([r[0], r[1], r[2], r[3] or "", r[4].isoformat() if r[4] else ""])
+    csv_data = buffer.getvalue()
+    buffer.close()
+
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=markers.csv"}
+    )
 
 @app.delete("/markers/{marker_id}")
 def delete_marker(marker_id: int):

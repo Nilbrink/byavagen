@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="sv">
 <head>
   <meta charset="utf-8" />
@@ -31,6 +31,34 @@
       margin: 0 0 12px 0;
       font-size: 18px;
       font-weight: 700;
+    }
+    #actions {
+      display: flex;
+      gap: 10px;
+      margin: 0 0 12px 0;
+    }
+    .btn {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #dfe2e7;
+      background: #fff;
+      color: #111;
+      cursor: pointer;
+      font-weight: 600;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+    .btn:hover {
+      border-color: #b9c6ff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+    .btn.danger {
+      border-color: #f5b4b4;
+      color: #b42318;
+      background: #fff5f5;
+    }
+    .btn.danger:hover {
+      border-color: #f97066;
+      background: #ffe2e2;
     }
     .item-head {
       display: flex;
@@ -98,14 +126,18 @@
   </style>
 </head>
 <body>
-  <div id="layout">
-    <div id="responses">
-      <h1>Sparade svar</h1>
-      <div id="status">H&auml;mtar data...</div>
-      <div id="list"></div>
+    <div id="layout">
+      <div id="responses">
+        <h1>Sparade svar</h1>
+        <div id="actions">
+          <button class="btn" id="export-btn">Exportera alla punkter</button>
+          <button class="btn danger" id="clear-btn">Rensa alla punkter</button>
+        </div>
+        <div id="status">Hämtar data...</div>
+        <div id="list"></div>
+      </div>
+      <div id="map"></div>
     </div>
-    <div id="map"></div>
-  </div>
 
   <div id="auth-overlay" style="position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:9999;">
     <div style="background:#fff; padding:20px 24px; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,0.25); max-width:320px; width:90%; text-align:center;">
@@ -122,6 +154,8 @@
     let infoWindow;
     let markers = [];
     let markerById = {};
+    let highlightedMarker = null;
+    let highlightIcon = null;
     const centerPoint = { lat: 62.491742, lng: 16.038320 };
 
     async function loadGoogleMapsApi() {
@@ -156,6 +190,14 @@
         streetViewControl: false,
         fullscreenControl: true,
       });
+      highlightIcon = {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: "#d92d20",
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+        scale: 9,
+      };
       infoWindow = new google.maps.InfoWindow();
       loadResponses();
     }
@@ -196,7 +238,7 @@
       const list = document.getElementById("list");
       list.innerHTML = "";
       if (!entries.length) {
-        list.innerHTML = "<div>Inga sparade marker &auml;n.</div>";
+        list.innerHTML = "<div>Inga sparade punkter</div>";
         return;
       }
 
@@ -208,7 +250,7 @@
         const meta = document.createElement("div");
         meta.className = "meta";
         const created = formatTimestamp(entry.created_at);
-        meta.textContent = `${created ? `Tid: ${created} · ` : ""}Lat: ${entry.lat.toFixed(5)}, Lng: ${entry.lng.toFixed(5)}`;
+        meta.textContent = `${created ? `Skapad: ${created} Â· ` : ""}`;
 
         const comment = document.createElement("div");
         comment.className = "comment";
@@ -233,7 +275,7 @@
         item.appendChild(comment);
 
         item.addEventListener("mouseenter", () => highlightMarker(entry));
-        item.addEventListener("mouseleave", () => { if (infoWindow) infoWindow.close(); });
+        item.addEventListener("mouseleave", () => clearHighlight());
         item.addEventListener("click", () => highlightMarker(entry, true));
 
         list.appendChild(item);
@@ -243,8 +285,20 @@
     function highlightMarker(entry, zoomTo = false) {
       const marker = markerById[entry.id];
       if (!marker) return;
-      openInfo(marker, entry);
+      clearHighlight();
+      marker.setIcon(highlightIcon);
+      marker.setZIndex(google.maps.Marker.MAX_ZINDEX + 1);
+      highlightedMarker = marker;
       if (zoomTo) map.panTo(marker.getPosition());
+    }
+
+    function clearHighlight() {
+      if (highlightedMarker) {
+        highlightedMarker.setIcon(null);
+        highlightedMarker.setZIndex(undefined);
+      }
+      highlightedMarker = null;
+      if (infoWindow) infoWindow.close();
     }
 
     function openInfo(marker, entry) {
@@ -268,6 +322,41 @@
 
     function setStatus(text) {
       document.getElementById("status").textContent = text;
+    }
+
+    async function handleExport() {
+      setStatus("Skapar export...");
+      try {
+        const response = await fetch("/api/markers/export");
+        if (!response.ok) throw new Error("export failed");
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "markers.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        setStatus("Export klar.");
+      } catch (err) {
+        console.error("Could not export markers", err);
+        setStatus("Kunde inte exportera.");
+      }
+    }
+
+    async function handleClearAll() {
+      const confirmed = confirm("Är du säker på att du vill ta bort alla punkter?");
+      if (!confirmed) return;
+      try {
+        const response = await fetch("/api/markers", { method: "DELETE" });
+        if (!response.ok) throw new Error("failed to clear");
+        await loadResponses();
+        setStatus("Alla punkter borttagna.");
+      } catch (err) {
+        console.error("Could not clear markers", err);
+        setStatus("Kunde inte rensa alla punkter.");
+      }
     }
 
     function formatTimestamp(value) {
@@ -295,12 +384,14 @@
       const submit = document.getElementById("auth-submit");
       const input = document.getElementById("auth-pass");
       const error = document.getElementById("auth-error");
+      const exportBtn = document.getElementById("export-btn");
+      const clearBtn = document.getElementById("clear-btn");
 
       async function check() {
         const val = input.value || "";
         error.textContent = "";
         if (!val) {
-          error.textContent = "Ange l&ouml;senord.";
+          error.textContent = "Ange lösenord.";
           return;
         }
 
@@ -316,8 +407,10 @@
           if (!response.ok) throw new Error("auth failed");
           overlay.style.display = "none";
           loadGoogleMapsApi();
+          exportBtn.addEventListener("click", handleExport);
+          clearBtn.addEventListener("click", handleClearAll);
         } catch (err) {
-          error.textContent = "Fel l&ouml;senord.";
+          error.textContent = "Fel lösenord.";
         } finally {
           submit.disabled = false;
           submit.textContent = prevLabel;
@@ -334,3 +427,7 @@
   </script>
 </body>
 </html>
+
+
+
+
