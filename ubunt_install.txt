@@ -1,28 +1,23 @@
-Install Docker + Compose plugin:
-sudo apt update && sudo apt install -y ca-certificates curl gnupg
+# 1) prep
+sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+
+# 2) add Docker GPG key + repo
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo tee /etc/apt/keyrings/docker.asc >/dev/null
-docker.list
-sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo usermod -aG docker $USER (log out/in to use docker without sudo).
-Get the code onto the server:
-<repo>.git
-cd <repo>
-Create .env (server-side, do not commit) with:
-POSTGRES_DB=appdb
-POSTGRES_USER=appuser
-POSTGRES_PASSWORD=sdfl123hfskl!@h
-DB_HOST=db
-GOOGLE_MAPS_API_KEY=...your key...
-RESPONSES_PASSWORD=test
-Run the stack (prod):
-docker compose -f docker-compose.prod.yml up -d --build
-Open ports 80/443 in your firewall if needed:
-sudo ufw allow 80,443/tcp
-Point your domain DNS (A/AAAA) to the server. Update Caddyfile.prod with your domain instead of  (line 80), then docker compose -f docker-compose.prod.yml restart caddy to fetch certs.
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list
 
-Verify:
+# 3) install
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-docker compose -f docker-compose.prod.yml ps
-Browse to http://<server-ip> (or https://<your-domain>).
-Updates: pull new code or copy changes, then docker compose -f docker-compose.prod.yml up -d --build. Data lives in the postgres_data volume.
+# 4) enable non-sudo (optional)
+sudo usermod -aG docker u93227@sp.se   # log out/in after this
+docker run hello-world
+
+Install on Ubuntu server
+ git clone https://Nilbrink@github.com/Nilbrink/byavagen.git
+ docker compose -f docker-compose.prod.yml up -d --build

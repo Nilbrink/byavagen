@@ -64,8 +64,14 @@
       line-height: 1.5;
     }
 
-    #close-instructions {
-      margin-right: 8px;
+    #close-instructions-btn {
+      padding: 10px 14px;
+      border: none;
+      background: #111827;
+      color: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
     }
 
     #save-toast {
@@ -126,7 +132,7 @@
     <div id="overlay-card">
       <h2>Instruktioner</h2>
       <p>Text kommer h&auml;r.</p>
-      <label><input type="checkbox" id="close-instructions" /> St&auml;ng instruktionerna</label>
+      <button id="close-instructions-btn">St&auml;ng instruktionerna</button>
     </div>
   </div>
 
@@ -232,7 +238,7 @@
     document.getElementById("save-comment").onclick = handleSaveComment;
     document.getElementById("cancel-comment").onclick = window.closeCommentDialog;
     document.getElementById("clear-db").onclick = handleClearDatabase;
-    document.getElementById("close-instructions").onchange = handleCloseInstructions;
+    document.getElementById("close-instructions-btn").onclick = handleCloseInstructions;
     window.addEventListener("resize", () => {
       if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
     });
@@ -323,11 +329,9 @@
       }
     }
 
-    function handleCloseInstructions(event) {
-      if (event.target.checked) {
-        const overlay = document.getElementById("overlay-backdrop");
-        overlay.style.display = "none";
-      }
+    function handleCloseInstructions() {
+      const overlay = document.getElementById("overlay-backdrop");
+      overlay.style.display = "none";
     }
 
     function positionCommentDialog(latLng) {
