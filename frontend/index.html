@@ -21,13 +21,21 @@
 
     #comment-dialog {
       display: none;
-      position: absolute;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
       background: #fff;
       border-radius: 8px;
       box-shadow: 0 2px 16px rgba(0,0,0,0.25);
       padding: 24px;
       z-index: 2000;
       min-width: 300px;
+      width: min(420px, calc(100vw - 32px));
+      max-width: calc(100vw - 32px);
+      max-height: calc(100vh - 32px);
+      box-sizing: border-box;
+      overflow: auto;
     }
 
     #comment-dialog h3 { margin-top: 0; }
@@ -49,7 +57,7 @@
       border-radius: 10px;
       padding: 20px;
       max-width: 420px;
-      width: 90%;
+      max-width: calc(100vw - 32px);
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
       color: #111;
     }
@@ -62,6 +70,11 @@
     #overlay-card p {
       margin: 0 0 16px 0;
       line-height: 1.5;
+    }
+
+    #overlay-card p:last-of-type {
+      font-size: 12px;
+      color: #444;
     }
 
     #close-instructions-btn {
@@ -92,6 +105,8 @@
       font-size: 16px;
       font-weight: 700;
       color: #111;
+      max-width: calc(100vw - 32px);
+      box-sizing: border-box;
     }
 
     #map-hint {
@@ -130,14 +145,25 @@
 
   <div id="overlay-backdrop">
     <div id="overlay-card">
-      <h2>Instruktioner</h2>
-      <p>Text kommer h&auml;r.</p>
+      <h2>Välkommen</h2>
+      <p>Hej! Vi vill l&auml;ra oss mer om hur det &auml;r att <b>g&aring;, cykla och k&ouml;ra l&auml;ngs v&auml;garna i Ljungaverk.</b></p>
+      <p><b>S&aring; g&ouml;r du:</b></p>
+      <ol>
+        <li>Zooma in eller ut i kartan.</li>
+        <li>Klicka p&aring; en <b>v&auml;g eller plats</b> vid v&auml;gen som p&aring;verkar hur det &auml;r att ta sig fram.</li>
+        <li>Skriv en kort kommentar om <b>vad som fungerar bra eller mindre bra &ndash; och varf&ouml;r.</b></li>
+        <li>Tryck p&aring; <b>Spara</b> (efter&aring;t kan du markera en ny v&auml;g om du vill).</li>
+      </ol>
+      <p>Det spelar ingen roll om du utg&aring;r fr&aring;n att g&aring;, cykla eller k&ouml;ra bil &ndash; till exempel n&auml;r bilister m&ouml;ter g&aring;ng- eller cykeltrafikanter.</p>
+      <p>Tack f&ouml;r att du hj&auml;lper oss att f&ouml;rst&aring; hur v&auml;garna upplevs!</p>
+      <p></p>
+      <p>Detta är en del av ett projekt drivet av Ånge kommun, Trafikverket och RISE forskningsinstitut.</p>
       <button id="close-instructions-btn">St&auml;ng instruktionerna</button>
     </div>
   </div>
 
   <div id="save-toast">
-    <div id="save-toast-card">Tack f&ouml;r ditt bidrag</div>
+    <div id="save-toast-card"><b>Tack så mycket</b> för din markering! Den har nu <b>sparats.</b></bsparats.></div>
   </div>
 
 
@@ -148,8 +174,6 @@
     let infoWindow;
     let dialogOpen = false;
     let lastGoodZoom = 14;
-    let projectionHelper;
-    const dialogOffset = { x: 16, y: 16 };
     let toastTimer = null;
 
     const centerPoint = { lat: 62.491742, lng: 16.038320 };
@@ -175,12 +199,6 @@
       });
 
       infoWindow = new google.maps.InfoWindow();
-      projectionHelper = new google.maps.OverlayView();
-      projectionHelper.onAdd = function() {};
-      projectionHelper.draw = function() {};
-      projectionHelper.onRemove = function() {};
-      projectionHelper.setMap(map);
-
       map.addListener("click", (e) => {
         if (dialogOpen) return;
         placeMarker(e.latLng);
@@ -189,15 +207,6 @@
 
       map.addListener("zoom_changed", () => {
         enforceZoomLimit();
-        if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
-      });
-
-      map.addListener("drag", () => {
-        if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
-      });
-
-      map.addListener("idle", () => {
-        if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
       });
 
       loadMarkers();
@@ -222,7 +231,6 @@
       dialogOpen = true;
       document.getElementById("comment-dialog").style.display = "block";
       document.getElementById("comment-text").value = "";
-      if (marker) positionCommentDialog(marker.getPosition());
     }
 
     function closeCommentDialog() {
@@ -239,10 +247,6 @@
     document.getElementById("cancel-comment").onclick = window.closeCommentDialog;
     document.getElementById("clear-db").onclick = handleClearDatabase;
     document.getElementById("close-instructions-btn").onclick = handleCloseInstructions;
-    window.addEventListener("resize", () => {
-      if (dialogOpen && marker) positionCommentDialog(marker.getPosition());
-    });
-
     function placeMarker(latLng) {
       if (!marker) {
         marker = new google.maps.Marker({
@@ -253,7 +257,6 @@
         marker.setPosition(latLng);
       }
       showCoordinates(latLng);
-      if (dialogOpen) positionCommentDialog(latLng);
     }
 
     function showCoordinates(latLng) {
@@ -332,22 +335,6 @@
     function handleCloseInstructions() {
       const overlay = document.getElementById("overlay-backdrop");
       overlay.style.display = "none";
-    }
-
-    function positionCommentDialog(latLng) {
-      if (!projectionHelper) return;
-      const proj = projectionHelper.getProjection();
-      if (!proj) return;
-
-      const dialog = document.getElementById("comment-dialog");
-      const mapRect = map.getDiv().getBoundingClientRect();
-      const point = proj.fromLatLngToDivPixel(latLng);
-      const rawLeft = mapRect.left + point.x + dialogOffset.x;
-      const rawTop = mapRect.top + point.y + dialogOffset.y;
-
-      // Keep dialog visible and offset from the marker.
-      dialog.style.left = `${Math.min(Math.max(rawLeft, 8), window.innerWidth - dialog.offsetWidth - 8)}px`;
-      dialog.style.top = `${Math.min(Math.max(rawTop, 8), window.innerHeight - dialog.offsetHeight - 8)}px`;
     }
 
     function showSaveToast() {
